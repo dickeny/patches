@@ -1,0 +1,116 @@
+diff -Nur kdepim-4.4.7.old/akregator/configuration/settings_advancedbase.ui kdepim-4.4.7/akregator/configuration/settings_advancedbase.ui
+--- kdepim-4.4.7.old/akregator/configuration/settings_advancedbase.ui	2010-10-22 07:24:28.000000000 +0800
++++ kdepim-4.4.7/akregator/configuration/settings_advancedbase.ui	2010-12-12 00:10:19.000000000 +0800
+@@ -97,6 +97,16 @@
+         </property>
+        </widget>
+       </item>
++      <item>
++       <widget class="QCheckBox" name="kcfg_ShowNewArticleViewer">
++        <property name="text">
++         <string>Show article viewer in new window when double-click</string>
++        </property>
++        <property name="checked">
++         <bool>true</bool>
++        </property>
++       </widget>
++      </item>
+      </layout>
+     </widget>
+    </item>
+diff -Nur kdepim-4.4.7.old/akregator/interfaces/akregator.kcfg kdepim-4.4.7/akregator/interfaces/akregator.kcfg
+--- kdepim-4.4.7.old/akregator/interfaces/akregator.kcfg	2010-10-22 07:24:25.000000000 +0800
++++ kdepim-4.4.7/akregator/interfaces/akregator.kcfg	2010-12-12 00:12:01.000000000 +0800
+@@ -221,5 +221,9 @@
+    <whatsthis>Resets the quick filter when changing feeds.</whatsthis>
+    <default>false</default>
+   </entry>
++  <entry key="Show New Article Viewer" name='ShowNewArticleViewer' type="Bool" >
++   <whatsthis>Show article viewer in new window when double-click</whatsthis>
++   <default>true</default>
++  </entry>
+ </group>
+ </kcfg>
+diff -Nur kdepim-4.4.7.old/akregator/src/articleviewer.cpp kdepim-4.4.7/akregator/src/articleviewer.cpp
+--- kdepim-4.4.7.old/akregator/src/articleviewer.cpp	2010-10-22 07:24:28.000000000 +0800
++++ kdepim-4.4.7/akregator/src/articleviewer.cpp	2010-11-28 11:41:01.000000000 +0800
+@@ -75,8 +75,8 @@
+ 
+ namespace Akregator {
+ 
+-ArticleViewer::ArticleViewer(QWidget *parent)
+-    : QFrame(parent),
++ArticleViewer::ArticleViewer(QWidget *parent, Qt::WindowFlags f)
++    : QFrame(parent, f),
+       m_url(0),
+       m_htmlFooter(),
+       m_currentText(),
+@@ -147,10 +147,21 @@
+     connect(KGlobalSettings::self(), SIGNAL(kdisplayFontChanged()), this, SLOT(slotPaletteOrFontChanged()) );
+ 
+     m_htmlFooter = "</body></html>";
++
++    if ( isWindow() )
++    {
++        KConfigGroup conf(Settings::self()->config(), "Article Viewer");
++        setGeometry(conf.readEntry("Geometry", parentWidget()->geometry()));
++    }
+ }
+ 
+ ArticleViewer::~ArticleViewer()
+ {
++    if ( isWindow() )
++    {
++        KConfigGroup conf(Settings::self()->config(), "Article Viewer");
++        conf.writeEntry("Geometry", geometry());
++    }
+ }
+ 
+ KParts::ReadOnlyPart* ArticleViewer::part() const
+diff -Nur kdepim-4.4.7.old/akregator/src/articleviewer.h kdepim-4.4.7/akregator/src/articleviewer.h
+--- kdepim-4.4.7.old/akregator/src/articleviewer.h	2010-10-22 07:24:28.000000000 +0800
++++ kdepim-4.4.7/akregator/src/articleviewer.h	2010-11-28 11:08:29.000000000 +0800
+@@ -55,7 +55,7 @@
+ {
+     Q_OBJECT
+     public:
+-        explicit ArticleViewer(QWidget* parent);
++        explicit ArticleViewer(QWidget* parent, Qt::WindowFlags f = 0);
+         ~ArticleViewer();
+ 
+ 
+diff -Nur kdepim-4.4.7.old/akregator/src/mainwidget.cpp kdepim-4.4.7/akregator/src/mainwidget.cpp
+--- kdepim-4.4.7.old/akregator/src/mainwidget.cpp	2010-10-22 07:24:28.000000000 +0800
++++ kdepim-4.4.7/akregator/src/mainwidget.cpp	2010-12-12 00:08:17.000000000 +0800
+@@ -878,8 +878,30 @@
+ 
+ void Akregator::MainWidget::slotOpenArticleInBrowser(const Akregator::Article& article)
+ {
+-    if (!article.isNull() && article.link().isValid())
++    if (article.isNull())
+     {
++        return;
++    }
++
++    if ( Settings::showNewArticleViewer() )
++    {
++        ArticleViewer * articleViewer = new ArticleViewer(this, Qt::Window);
++        articleViewer->setAttribute(Qt::WA_DeleteOnClose);
++        articleViewer->showArticle(article);
++        articleViewer->setWindowTitle(article.title());
++
++        connect( articleViewer, SIGNAL(signalOpenUrlRequest(Akregator::OpenUrlRequest& )),
++                 Kernel::self()->frameManager(), SLOT(slotOpenUrlRequest( Akregator::OpenUrlRequest& )) );
++        connect( articleViewer->part()->browserExtension(), SIGNAL(mouseOverInfo( KFileItem )),
++                 this, SLOT(slotMouseOverInfo( KFileItem )) );
++        connect( articleViewer, SIGNAL(completed()), articleViewer, SLOT(repaint()) );
++        articleViewer->show();
++    }
++    else
++    {
++        if (!article.link().isValid()){
++            return;
++        }
+         OpenUrlRequest req(article.link());
+         req.setOptions(OpenUrlRequest::ExternalBrowser);
+         Kernel::self()->frameManager()->slotOpenUrlRequest(req);
